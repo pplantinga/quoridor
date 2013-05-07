@@ -1,0 +1,522 @@
+<?php
+
+// Create a variable to store the path to this module
+define('QUORIDOR_PATH', drupal_get_path( 'module', 'quoridor' ) );
+
+function quoridor_menu()
+{	
+	$items['online_quoridor'] = array(
+		'title' => 'Login to Quoridor',
+		'page callback' => 'quoridor_login',
+		'access callback' => TRUE,
+	);
+
+	$items['online_quoridor/setup'] = array(
+		'title' => 'Set up a game of Quoridor',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array( 'quoridor_setup' ),
+		'access arguments' => array( 'play quoridor' ),
+	);
+
+	$items['online_quoridor/waiting'] = array(
+		'title' => 'View games waiting for a second player',
+		'page callback' => 'quoridor_waiting',
+		'access arguments' => array( 'play quoridor' ),
+	);
+
+	$items['online_quoridor/current'] = array(
+		'title' => 'View games currently being played',
+		'page callback' => 'quoridor_current',
+		'access arguments' => array( 'play quoridor' ),
+	);
+
+	$items['online_quoridor/history'] = array(
+		'title' => 'View all finished games',
+		'page callback' => 'quoridor_history',
+		'access arguments' => array( 'play quoridor' ),
+	);
+
+	$items['online_quoridor/play/%'] = array(
+		'title' => 'Play quoridor!',
+		'page callback' => 'quoridor_play',
+		'page arguments' => array( 2 ),
+		'access arguments' => array( 'play quoridor' ),
+	);
+
+	$items['online_quoridor/play/%/move'] = array(
+		'title' => 'make move',
+		'page callback' => 'quoridor_make_move',
+		'page arguments' => array( 2 ),
+		'access arguments' => array( 'play quoridor' ),
+	);
+
+	$items['online_quoridor/play/%/view'] = array(
+		'title' => 'Watch a game',
+		'page callback' => 'quoridor_play',
+		'page arguments' => array( 2, 'view' ),
+		'access arguments' => array( 'play quoridor' ),
+	);
+
+	return $items;
+}
+
+function quoridor_permission()
+{
+	return array(
+		'play quoridor' => array(
+			'title' => t( 'Play Quoridor' ),
+			'description' => t( 'Access all games and create new ones' ),
+		),
+	);
+}
+
+/* QUORIDOR PAGES!!!!!!!!!!!!!!!!!!!!! */
+
+function quoridor_login()
+{
+	global $user;
+
+	if ( $user->uid == 0 )
+		return drupal_get_form( 'user_login_block' );
+	
+	drupal_set_title( "Welcome to Online Quoridor!" );
+	
+	$output = "<p>Feel free to:</p>"
+		. "<ul>"
+			. "<li>" . l( 'Set up a game', 'online_quoridor/setup' ) . "</li>"
+			. "<li>" . l( 'See games waiting for another player', 'online_quoridor/waiting' ) . "</li>"
+			. "<li>" . l( 'Browse current games', 'online_quoridor/current' ) . "</li>"
+			. "<li>" . l( 'Review old games', 'online_quoridor/history' ) . "</li>"
+			. "</ul>";
+
+	drupal_add_js( "
+		/* <![CDATA[ */
+		    (function() {
+					var s = document.createElement('script'), t = document.getElementsByTagName('script')[0];
+					s.type = 'text/javascript';
+					s.async = true;
+					s.src = 'http://api.flattr.com/js/0.6/load.js?mode=auto';
+					t.parentNode.insertBefore(s, t);
+				})();
+	/* ]]> */", 'inline' );
+
+	$output .= '<a class="FlattrButton" style="display:none;" href="http://massey-plantinga.com/online_quoridor"></a>
+		<noscript><a href="http://flattr.com/thing/930850/Quoridor" target="_blank">
+		<img src="http://api.flattr.com/button/flattr-badge-large.png" alt="Flattr this" title="Flattr this" border="0" /></a></noscript>';
+
+	return $output;
+}
+
+/*
+ * Form for starting a game
+ */
+function quoridor_setup()
+{
+	$options = array( 'Me', 'Them', 'Randomly Choose' );
+	$form['play_as'] = array(
+		'#type' => 'radios',
+		'#title' => 'Choose who goes first:',
+		'#options' => $options,
+		'#required' => TRUE,
+		'#default_value' => 0,
+	);
+	
+	$form['submit'] = array(
+		'#type' => 'submit',
+		'#value' => 'Play!',
+	);
+
+	return $form;
+}
+
+function quoridor_setup_submit( $form, &$form_state )
+{
+	global $user;
+
+	if ( $form_state['values']['play_as'] === 0 )
+		$gid = db_insert( 'quoridor_games' )->fields( array( 'uid_1' => $user->uid ) )->execute();
+	else if ( $form_state['values']['play_as'] == 1 )
+		$gid = db_insert( 'quoridor_games' )->fields( array( 'uid_2' => $user->uid ) )->execute();
+	else if ( rand( 0, 1 ) )
+		$gid = db_insert( 'quoridor_games' )->fields( array( 'uid_1' => $user->uid ) )->execute();
+	else
+		$gid = db_insert( 'quoridor_games' )->fields( array( 'uid_2' => $user->uid ) )->execute();
+
+	$form_state['redirect'] = array( "online_quoridor/play/$gid" );
+}
+
+function quoridor_waiting()
+{
+	$game_info = db_select( 'quoridor_games' )
+		->fields( 'quoridor_games', array( 'gid', 'uid_1', 'uid_2', 'won' ) )
+		->isNull( 'won' )
+		->condition( db_or()->isNull( 'uid_1' )->isNull( 'uid_2' ) )
+		->execute();
+
+	return print_game_list( $game_info, FALSE );
+}
+
+function quoridor_current()
+{
+	$game_info = db_select( 'quoridor_games' )
+		->fields( 'quoridor_games', array( 'gid', 'uid_1', 'uid_2', 'won' ) )
+		->isNull( 'won' )
+		->isNotNull( 'uid_1' )
+		->isNotNull( 'uid_2' )
+		->execute();
+
+	return print_game_list( $game_info, TRUE );
+}
+
+function quoridor_history()
+{
+	$game_info = db_select( 'quoridor_games' )
+		->fields( 'quoridor_games', array( 'gid', 'uid_1', 'uid_2', 'won' ) )
+		->isNotNull( 'won' )
+		->isNotNull( 'uid_1' )
+		->isNotNull( 'uid_2' )
+		->execute();
+
+	return print_game_list( $game_info, TRUE );
+}
+
+/**
+ * $game_info is a database query result resource with all the rows we want to display
+ * $view is a boolean telling us whether the user is playing or viewing these games.
+ */
+function print_game_list( $game_info, $view )
+{
+	$name_query = db_select( 'users' )
+		->fields( 'users', array( 'name' ) );
+
+	$output = '<ul>';
+	while ( $game = $game_info->fetchAssoc() )
+	{
+		$name_1 = db_select( 'users' )->fields( 'users', array( 'name' ) )->condition( 'uid', $game['uid_1'] )->execute()->fetchField();
+		$name_2 = db_select( 'users' )->fields( 'users', array( 'name' ) )->condition( 'uid', $game['uid_2'] )->execute()->fetchField();
+
+		$link = l( "$name_1 vs. $name_2", "online_quoridor/play/$game[gid]" );
+		
+		$output .= "<li>$link</li>";
+	}
+	$output .= "</ul>";
+
+	$output .= "<p>Or go back to the <a href='/online_quoridor'>Online Quoridor menu</a>.</p>";
+
+	return $output;
+}
+
+function convert_uid_to_name( $uid )
+{
+	if ( !$uid )
+		return '';
+
+	$name = db_select( 'users' )
+		->fields( 'users', array( 'name' ) )
+		->condition( 'uid', $uid )
+		->execute()
+		->fetchField();
+
+	return $name;
+}
+
+function quoridor_play( $gid, $viewing = FALSE )
+{
+	drupal_add_css( QUORIDOR_PATH . '/css/online-quoridor-play.css' );
+
+	$game_info = db_select( 'quoridor_games' )
+		->fields( 'quoridor_games', array( 'uid_1', 'uid_2' ) )
+		->condition( 'gid', $gid, '=' )
+		->execute()
+		->fetchAssoc();
+
+	$uid_1 = $game_info['uid_1'];
+	$uid_2 = $game_info['uid_2'];
+
+	global $user;
+	if ( !$uid_1 && !$uid_2 )
+	{
+		return "This isn't a valid game";
+	}
+	else if ( !$uid_1 || !$uid_2 && !$viewing )
+	{
+		if ( $user->uid == $uid_1 || $user->uid == $uid_2 )
+		{
+			$message = "Waiting for another player to join this game.";
+		}
+		else
+		{
+			if ( !$uid_1 )
+			{
+				$update_field = array( 'uid_1' => $user->uid );
+				$uid_1 = $user->uid;
+			}
+			else
+			{
+				$update_field = array( 'uid_2' => $user->uid );
+				$uid_2 = $user->uid;
+			}
+
+			db_update( 'quoridor_games' )
+				->fields( $update_field )
+				->condition( 'gid', $gid, '=' )
+				->execute();
+
+			$message = "You just joined game #$gid.";
+		}	
+	}
+	else
+	{
+		$message = "Welcome to game #$gid.";
+	}
+
+	if ( $uid_1 == $user->uid )
+		drupal_add_js( 'var player = 1;', 'inline' );
+	else if ( $uid_2 == $user->uid )
+		drupal_add_js( 'var player = 2;', 'inline' );
+	else
+		drupal_add_js( 'var player = "viewer";', 'inline' );
+
+	$name_1 = convert_uid_to_name( $uid_1 );
+	$name_2 = convert_uid_to_name( $uid_2 );
+
+	drupal_add_js( "var name_1 = '$name_1'; var name_2 = '$name_2';", 'inline' );
+
+	drupal_add_js( QUORIDOR_PATH . '/js/Three.js' );
+	drupal_add_js( QUORIDOR_PATH . '/js/quoridor_model.js' );
+	drupal_add_js( QUORIDOR_PATH . '/js/quoridor_view.js' );
+
+	return $message;
+}
+
+/*
+ * This function called via ajax when playing the game
+ *
+ * it is for making moves and finding out what moves have been made
+ */
+function quoridor_make_move( $gid )
+{
+	$game_info = db_select( 'quoridor_games' )
+		->fields( 'quoridor_games', array( 'uid_1', 'uid_2' ) )
+		->condition( 'gid', $gid, '=' )
+		->execute()
+		->fetchAssoc();
+
+	global $user;
+	if ( empty( $_POST['move'] ) )
+	{
+		print "you didn't make a move";
+	}
+	else if ( $_POST['move'] == 'begin' )
+	{
+		$moves_query = db_select( 'quoridor_moves' )
+			->fields( 'quoridor_moves', array( 'move' ) )
+			->condition( 'gid', $gid );
+
+		if ( !empty( $_POST['turn'] ) )
+			$moves_query = $moves_query->condition( 'turn', $_POST['turn'], '<=' );
+
+		$moves = $moves_query->execute();
+
+		$moves_string = "begin";
+		while ( $move = $moves->fetchField() )
+			$moves_string .= " $move";
+		
+		print $moves_string;
+	}
+	else if ( $_POST['move'] == 'poll' )
+	{
+		$turn = $_POST['turn'];
+
+		if ( $turn == "start" )
+		{
+			$start = db_select( 'quoridor_games' )
+				->fields( 'quoridor_games', array( 'uid_1', 'uid_2' ) )
+				->condition( 'gid', $gid )
+				->execute()
+				->fetchAssoc();
+
+			if ( $start['uid_1'] && $start['uid_2'] )
+				print "start " . convert_uid_to_name( $start['uid_1'] ) . " " . convert_uid_to_name( $start['uid_2'] );
+			else
+				print "start wait";
+		}
+		else
+		{
+			$move = db_select( 'quoridor_moves' )
+				->fields( 'quoridor_moves', array( 'move' ) )
+				->condition( 'turn', $turn, '>' )
+				->condition( 'gid', $gid )
+				->execute()
+				->fetchField();
+
+			if ( $move )
+				print $move;
+			else
+				print "no move";
+		}
+	}
+	else
+	{
+		if ( $user->uid != $game_info['uid_1'] && $user->uid != $game_info['uid_2'] )
+		{
+			print "You are not allowed to play this game";
+			exit;
+		}
+
+		$turn = db_select( 'quoridor_moves' )
+			->condition( 'gid', $gid );
+		$turn->addExpression( 'MAX( turn )', 'max_turn' );
+		$max_turn = $turn->execute()->fetchField();
+
+		db_insert( 'quoridor_moves' )
+			->fields(
+				array(
+					'gid' => $gid,
+					'move' => $_POST['move'],
+					'turn' => $max_turn + 1,
+				)
+			)
+			->execute();
+
+		if ( preg_match( '/^[a-i]([19])$/', trim( $_POST['move'] ), $matches ) )
+		{
+			if ( $matches[1] == "1" && $max_turn % 2 == 1 )
+				$player = 2;
+			else if ( $matches[1] == "9" && $max_turn % 2 == 0 )
+				$player = 1;
+			else
+				exit;
+
+			db_update( 'quoridor_games' )
+				->fields( array( 'won' => $player ) )
+				->condition( 'gid', $gid )
+				->execute();
+		}
+	}
+
+	// So that drupal doesn't spit out unfortunances
+	exit;
+}
+
+/* QUORIDOR BLOCK STUFFS!!!!!!!!!!!!!!!!!!! */
+
+function quoridor_block_info()
+{
+	$blocks = array();
+
+	$blocks['quoridor_moves'] = array(
+		'info' => t( 'Quoridor Moves' ),
+		'status' => 1,
+		'region' => 'sidebar_first',
+		'visibility' => BLOCK_VISIBILITY_LISTED,
+		'pages' => 'online_quoridor/play/*',
+	);
+
+	$blocks['quoridor_menu'] = array(
+		'info' => t( 'Quoridor Menu' ),
+		'status' => 1,
+		'region' => 'header',
+		'visibility' => BLOCK_VISIBILITY_LISTED,
+		'pages' => 'online_quoridor/play/*',
+	);
+
+	return $blocks;
+}
+
+function quoridor_block_view( $delta )
+{
+	$block = array();
+	
+	switch ( $delta )
+	{
+		case 'quoridor_moves':
+			$block['subject'] = t( 'Moves' );
+			$block['content'] = array(
+				'#theme' => 'quoridor_moves',
+				'#gid' => 1,
+				'#title' => t( 'Moves' ),
+			);
+			break;
+		case 'quoridor_menu':
+			$block['subject'] = t( 'Menu' );
+			$block['content'] = array(
+				'#theme' => 'quoridor_menu',
+				'#title' => '<none>',
+			);
+			break;
+	}
+
+	return $block;
+}
+
+/* QUORIDOR THEME STUFFS!!!!!!!!!!!!!*/
+
+/**
+ * This thingamajigger is for telling Drupal to look in the module for template files
+ * From http://drupal.org/node/715160
+ */
+function quoridor_theme_registry_alter( &$theme_registry )
+{
+	$theme_registry_copy = $theme_registry;
+	$themes = array_keys( list_themes() );
+  _theme_process_registry( $theme_registry_copy, 'phptemplate', 'theme_engine', $themes[0], QUORIDOR_PATH );
+  $theme_registry += array_diff_key( $theme_registry_copy, $theme_registry );
+
+  // A list of templates the module will provide templates for
+  $hooks = array( 'page', 'html', 'block' );
+	foreach ( $hooks as $h )
+	{
+    // Add the key 'theme paths' if it doesn't exist in this theme's registry
+		if ( !isset( $theme_registry[$h]['theme paths'] ) )
+      $theme_registry[$h]['theme paths'] = array();
+
+    // Shift this module's directory to the top of the theme path list 
+		if ( is_array( $theme_registry[$h]['theme paths'] ) )
+		{
+      $first_element = array_shift( $theme_registry[$h]['theme paths'] );
+
+			if ( $first_element )
+        array_unshift( $theme_registry[$h]['theme paths'], $first_element, QUORIDOR_PATH );
+      else
+        array_unshift( $theme_registry[$h]['theme paths'], QUORIDOR_PATH );
+    }
+  }
+}
+
+function quoridor_theme( $existing, $type, $theme, $path )
+{
+	$elements = array();
+
+	$elements['quoridor_moves'] = array(
+		'variables' => array( 'gid' => NULL ),
+		'function' => 'quoridor_render_moves',
+	);
+
+	$elements['quoridor_menu'] = array(
+		'variables' => array(),
+		'function' => 'quoridor_render_menu',
+	);
+
+	return $elements;
+}
+
+function quoridor_render_moves( $gid )
+{
+	$table = "<table id='moves-table'><tbody></tbody></table>";
+
+	return $table;
+}
+
+function quoridor_render_menu()
+{
+	$menu = '
+	<ul class="menu">
+  	<li><a id="canvas" href="#" class="active">Basic 2D Theme</a></li>
+  	<li><a id="basic" href="#">Basic 3D Theme</a></li>
+  	<li><a id="corralidor" href="#">Corralidor 3D Theme</a></li>
+  	<li><a id="futuristic" href="#">Futuristic 3D Theme</a></li>
+		<li><a id="help" href="#">Help Page</a></li>
+	</ul>';
+	return $menu;
+}
