@@ -1,4 +1,0 @@
-name = Online Quoridor
-description = This module enables a webpage where users can play quoridor against each other.
-core = 7.x
-package = Games
