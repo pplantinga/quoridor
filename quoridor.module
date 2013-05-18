@@ -399,6 +399,31 @@ function quoridor_make_move( $gid )
 	exit;
 }
 
+/**
+ * Since we need to email users after a move has been made
+ *  use drupal's hook_mail
+ */
+function quoridor_mail( $key, &$message, $params )
+{
+	global $user;
+
+	$options = array(
+		'langcode' => $message['language']->language,
+	);
+
+	switch ( $key )
+	{
+		case 'opponent_move':
+			$message['subject'] = t( '@name made a move!', array( '@name' => $user->name ) );
+			$message['body'][] = t( 'Your opponent, @name, has made a move in your game.', array( '@name' => $user->name ) );
+			$message['body'][] = t( ' ' );
+			$gid = array( '@gid' => $params['gid'] );
+			$message['body'][] = t( "Go to http://massey-plantinga.com/play/@gid to show them who's boss!", $gid );
+			break;
+	}
+}
+
+
 /* QUORIDOR BLOCK STUFFS!!!!!!!!!!!!!!!!!!! */
 
 function quoridor_block_info()
