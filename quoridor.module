@@ -439,7 +439,7 @@ function quoridor_mail( $key, &$message, $params )
 			$message['body'][] = t( 'Your opponent, @name, has made a move in your game.', array( '@name' => $user->name ) );
 			$message['body'][] = t( ' ' );
 			$gid = array( '@gid' => $params['gid'] );
-			$message['body'][] = t( "Go to http://massey-plantinga.com/play/@gid to show them who's boss!", $gid );
+			$message['body'][] = t( "Go to http://massey-plantinga.com/online_quoridor/play/@gid to show them who's boss!", $gid );
 			break;
 	}
 }
