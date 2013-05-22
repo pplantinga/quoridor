@@ -379,6 +379,27 @@ function quoridor_make_move( $gid )
 			)
 			->execute();
 
+		// Turn
+		$current_player = ( $max_turn % 2 ) + 1;
+		$opposing_player = ( $current_player % 2 ) + 1;
+		$opponent = user_load( $game_info[ "uid_" . $opposing_player ] );
+
+		print_r( $opponent );
+
+		print_r( user_preferred_language( $opponent ) );
+		print( variable_get( 'site_mail', 'admin@example.com' ) );
+		// Mail opponent to let them know it is their turn
+		$result = drupal_mail(
+			'quoridor',
+			'turn_notify',
+			$opponent->mail,
+			user_preferred_language( $opponent ),
+	 		array( 'gid' => $gid ),
+			variable_get( 'site_mail', 'admin@example.com' )
+		);
+
+		print( $result['result'] );
+
 		if ( preg_match( '/^[a-i]([19])$/', trim( $_POST['move'] ), $matches ) )
 		{
 			if ( $matches[1] == "1" && $max_turn % 2 == 1 )
@@ -413,7 +434,7 @@ function quoridor_mail( $key, &$message, $params )
 
 	switch ( $key )
 	{
-		case 'opponent_move':
+		case 'turn_notify':
 			$message['subject'] = t( '@name made a move!', array( '@name' => $user->name ) );
 			$message['body'][] = t( 'Your opponent, @name, has made a move in your game.', array( '@name' => $user->name ) );
 			$message['body'][] = t( ' ' );
